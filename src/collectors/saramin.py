@@ -45,13 +45,38 @@ def search_posting_urls(keyword: str) -> list[str]:
     ]
 
 
-def _extract_deadline(text: str) -> tuple[str | None, bool]:
-    """마감일 텍스트에서 (YYYY-MM-DD, 상시채용여부)를 뽑는다."""
-    if "상시" in text or "채용 시 마감" in text:
+def _parse_meta_description(html: str) -> dict:
+    """<meta name="description">가 "회사, 직무, 경력:X, 학력:X, 급여,
+    마감일:X, 홈페이지:X" 형태로 항상 안정적으로 들어있다.
+
+    본문(body)은 사람인이 가끔 네비게이션 껍데기만 내려주는 경우가 있어서
+    (JS 렌더링에 의존하는 것으로 보임), 거기서 정규식으로 경력을 뽑으면
+    엉뚱하게 메뉴에 있는 "신입·인턴" 같은 글자를 진짜 요건으로 착각하는
+    사고가 났다. 메타 태그는 body 렌더링 상태와 무관하게 항상 채워져
+    있어서 회사명/직무명/경력/마감일은 이쪽을 신뢰한다.
+    """
+    m = re.search(r'<meta name="description" content="([^"]+)"', html)
+    if not m:
+        return {}
+    parts = [p.strip() for p in m.group(1).split(",")]
+    result = {}
+    if len(parts) >= 2:
+        result["company"] = parts[0]
+        result["title"] = parts[1]
+    for part in parts[2:]:
+        if ":" in part:
+            key, _, value = part.partition(":")
+            result[key.strip()] = value.strip()
+    return result
+
+
+def _extract_deadline(career_field_deadline: str) -> tuple[str | None, bool]:
+    """메타 설명의 마감일 값에서 (YYYY-MM-DD, 상시채용여부)를 뽑는다."""
+    if not career_field_deadline or "상시" in career_field_deadline:
         return None, True
-    m = re.search(r"마감일\s*(\d{4})\.(\d{2})\.(\d{2})", text)
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", career_field_deadline)
     if m:
-        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}", False
+        return career_field_deadline[:10], False
     return None, False
 
 
@@ -60,19 +85,24 @@ def fetch_posting(url: str) -> Posting:
     soup = BeautifulSoup(html, "html.parser")
     text = soup.get_text("\n", strip=True)
 
-    # <title>은 "[회사명] 공고제목 (D-3) - 사람인" 형태로 안정적으로 나온다.
-    title_full = soup.title.string if soup.title else ""
-    m = re.match(r"\[(?P<company>[^\]]+)\]\s*(?P<title>.+?)\s*-\s*사람인\s*$", title_full or "")
-    company = m.group("company").strip() if m else ""
-    title = m.group("title").strip() if m else (title_full or "").strip()
-    title = re.sub(r"\(D-?\d*\)\s*$", "", title).strip()
-    title = re.sub(r"\(\)\s*$", "", title).strip()
+    meta = _parse_meta_description(html)
+
+    # 메타 설명이 없으면(사실상 거의 없음) <title> "[회사명] 제목 - 사람인"으로 대체
+    if meta.get("company") and meta.get("title"):
+        company, title = meta["company"], meta["title"]
+    else:
+        title_full = soup.title.string if soup.title else ""
+        m = re.match(r"\[(?P<company>[^\]]+)\]\s*(?P<title>.+?)\s*-\s*사람인\s*$", title_full or "")
+        company = m.group("company").strip() if m else ""
+        title = m.group("title").strip() if m else (title_full or "").strip()
+        title = re.sub(r"\(D-?\d*\)\s*$", "", title).strip()
+        title = re.sub(r"\(\)\s*$", "", title).strip()
 
     is_closed = "본 채용정보는 마감되었습니다" in text or "접수마감" in text
-    deadline, is_rolling = _extract_deadline(text)
+    deadline, is_rolling = _extract_deadline(meta.get("마감일", ""))
 
-    career_m = re.search(r"경력\s*\n?\s*([^\n]{1,20})", text)
-    career_text = career_m.group(1).strip() if career_m else ""
+    # 메타의 "경력" 값은 "경력:경력 5년 이상"처럼 "경력:" 다음에 온다.
+    career_text = meta.get("경력", "")
 
     tag_section = ""
     if "관련 태그" in text:
