@@ -1,0 +1,19 @@
+name: Collect job postings
+
+on:
+  schedule:
+    - cron: "30 22 * * *" # 매일 한국시간 07:30 (판별 루틴이 도는 09:00보다 앞서 끝나도록)
+  workflow_dispatch: {}
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: python src/main.py
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}

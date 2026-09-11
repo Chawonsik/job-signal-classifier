@@ -1,31 +1,27 @@
-import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from checks import check_posting  # noqa: E402
 from collectors import careerly, saramin, wanted  # noqa: E402
-from storage import get_conn, is_known_url, save_posting  # noqa: E402
-
-PENDING_PATH = Path(__file__).resolve().parent.parent / "data" / "pending_classification.json"
+from notion_stage import add_to_staging, get_existing_urls  # noqa: E402
 
 
-def collect_saramin(conn):
-    new_postings = []
+def collect_saramin(known_urls: set[str]):
+    postings = []
     for keyword in saramin.SEARCH_KEYWORDS:
         for url in saramin.search_posting_urls(keyword):
-            if is_known_url(conn, url):
+            if url in known_urls:
                 continue
-            posting = saramin.fetch_posting(url)
-            if save_posting(conn, posting):
-                new_postings.append(posting)
-    return new_postings
+            postings.append(saramin.fetch_posting(url))
+            known_urls.add(url)
+    return postings
 
 
 CAREERLY_MAX_FETCH_PER_RUN = 150
 
 
-def collect_careerly(conn):
+def collect_careerly(known_urls: set[str]):
     """사이트맵 URL을 job ID 내림차순(최신 추정)으로 정렬해서, 모르는
     URL 중 앞에서부터 최대 CAREERLY_MAX_FETCH_PER_RUN개만 상세 조회한다.
 
@@ -35,63 +31,57 @@ def collect_careerly(conn):
     되니까 이 정도 캡으로 충분하다.
     """
     all_urls = careerly.list_all_job_urls()
-    unknown = [u for u in all_urls if not is_known_url(conn, u)]
+    unknown = [u for u in all_urls if u not in known_urls]
     unknown.sort(key=lambda u: int(u.rstrip("/").rsplit("/", 1)[-1]), reverse=True)
 
-    new_postings = []
+    postings = []
     for url in unknown[:CAREERLY_MAX_FETCH_PER_RUN]:
-        posting = careerly.fetch_posting(url)
-        if save_posting(conn, posting):
-            new_postings.append(posting)
-    return new_postings
+        postings.append(careerly.fetch_posting(url))
+        known_urls.add(url)
+    return postings
 
 
-def collect_wanted(conn):
-    new_postings = []
+def collect_wanted(known_urls: set[str]):
+    postings = []
     for keyword in wanted.SEARCH_KEYWORDS:
         for job in wanted.search_position_ids(keyword):
             url = f"{wanted.BASE}/wd/{job['id']}"
-            if is_known_url(conn, url):
+            if url in known_urls:
                 continue
-            posting = wanted.fetch_posting(job)
-            if save_posting(conn, posting):
-                new_postings.append(posting)
-    return new_postings
+            postings.append(wanted.fetch_posting(job))
+            known_urls.add(url)
+    return postings
 
 
 def main():
-    conn = get_conn()
+    known_urls = get_existing_urls()
+    print(f"노션에 이미 있는 링크 {len(known_urls)}건 조회함")
+
     new_postings = []
-    new_postings += collect_saramin(conn)
-    new_postings += collect_wanted(conn)
-    new_postings += collect_careerly(conn)
-    conn.close()
+    new_postings += collect_saramin(known_urls)
+    new_postings += collect_wanted(known_urls)
+    new_postings += collect_careerly(known_urls)
+    print(f"신규 후보 {len(new_postings)}건 수집됨")
 
-    print(f"신규 공고 {len(new_postings)}건 수집됨")
-
-    pending = []
+    staged = 0
     for posting in new_postings:
         result = check_posting(posting)
         if not result.ok:
             print(f"  [점검 실패] {posting.url} - {', '.join(result.reasons)}")
             continue
-        pending.append(
-            {
-                "site": posting.site,
-                "company": posting.company,
-                "title": posting.title,
-                "url": posting.url,
-                "career_tags": result.career_tags,
-                "is_rolling": posting.is_rolling,
-                "is_closed": posting.is_closed,
-                "tags": posting.tags,
-                "requirement_text": posting.requirement_text,
-            }
+        is_intern = "인턴" in posting.tags
+        add_to_staging(
+            site=posting.site,
+            company=posting.company,
+            title=posting.title,
+            url=posting.url,
+            career_tags=result.career_tags,
+            is_intern=is_intern,
+            requirement_text=posting.requirement_text,
         )
+        staged += 1
 
-    PENDING_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PENDING_PATH.write_text(json.dumps(pending, ensure_ascii=False, indent=2))
-    print(f"판별 대기 {len(pending)}건을 {PENDING_PATH}에 저장함")
+    print(f"판별대기 DB에 {staged}건 추가함")
 
 
 if __name__ == "__main__":
