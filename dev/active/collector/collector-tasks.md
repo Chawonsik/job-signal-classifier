@@ -31,10 +31,23 @@ Last Updated: 2026-09-10
 - [x] 체크 결과 로그 출력 (정상/확인필요/실패 건수)
 - 알려진 한계: 경계값(예: "신입~3년")에서 과포함 경향 있음. 최종 확인은 노션에서 사람이 함
 
-## 5. 판별 로직
-- [x] `classify.py` 코드 작성 (연차 파싱은 career_parser.py 재사용, Claude Haiku 프롬프트 완성)
-- [ ] **보류**: ANTHROPIC_API_KEY 발급 방식 고민 중 (일반 API 키 vs 구독 기반 스케줄 클라우드 에이전트). 클라우드 에이전트는 상태 유지(SQLite 커밋 필요)·노션 커넥터 재연결이 번거롭고 비용 방식도 불명확해서, 사용자가 더 생각해보기로 함. Haiku API 자체는 월 1~2천원 수준으로 저렴함
-- [ ] 실제 API 키로 판별 결과 표본 검토 (오분류 확인) — 키 준비되면 진행
+## 5. 판별 로직 — 완료 (API 키 대신 구독 기반 클라우드 루틴으로 확정)
+- [x] `classify.py`는 API 호출 코드 대신 판별 기준(INCLUDE/EXCLUDE)만 담은 참고용 상수 파일로 정리
+- [x] 실제 판별은 클라우드 루틴 프롬프트에 기준을 그대로 임베드해서, 루틴이 직접 JD 읽고 판단
+- [ ] 판별 결과 표본 검토 (오분류 확인) — 첫 실행 후 진행
+
+## 6. 노션 업로드 + 스케줄 — 완료
+- [x] main.py로 수집+적재+점검 파이프라인 완성, 사람인/원티드/커리어리 첫 실행 테스트 통과(총 566건 저장)
+- [x] 깃허브 저장소 생성 (Chawonsik/job-signal-classifier, **Public** — claude.ai GitHub 연동이 public repo만 접근 가능해서 공개 전환함, 시크릿 없음 확인 완료)
+- [x] claude.ai 스케줄 클라우드 루틴 생성 (trig_01HXfSsUsGdvZnMfzsjDVAEz, 이름: job-signal-daily)
+  - 매일 KST 오전 9시(UTC 0시) 실행
+  - Notion MCP 커넥터만 연결 (Google Drive/Vercel 등은 제외)
+  - 프롬프트: main.py 실행 → pending_classification.json 읽고 직접 판별 → 채용공고 트래커 DB에 업로드(그룹/마감일/마감됨/계약직은 채우지 않음) → local.db·json 커밋/푸시로 상태 유지
+- [ ] 다음 실행(2026-09-12 오전 9시경) 후 실제로 노션에 잘 들어갔는지, 커밋이 잘 됐는지 확인 필요
+
+## 트러블슈팅 기록 (참고용)
+- claude.ai 루틴이 private repo에 401→(연결 후)403 에러를 냄. 원인은 claude.ai의 "GitHub 연동" 기능이 OAuth 방식이라 저장소 선택 UI가 없고 **public 저장소만 접근 가능**했던 것. 저장소를 public으로 바꾸자 즉시 해결됨
+- 클로드 데스크톱 앱의 "플러그인 > Github" 커넥터와 "커넥터 > GitHub 연동"은 서로 다른 별개 연동임 (전자는 이 세션 시작부터 깨져있던 것)
 
 ## 6. 노션 업로드 + 스케줄
 - [ ] `notion_sync.py` 신규 항목 업로드
