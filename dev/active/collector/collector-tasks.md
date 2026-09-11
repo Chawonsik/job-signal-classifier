@@ -17,7 +17,7 @@ Last Updated: 2026-09-10
 - [ ] `collectors/saramin.py` — 크롤링, 요청 간격 준수
 - [x] `collectors/rocketpunch.py` — 시도 후 완전 제외 (형사처벌 경고 문구 + 로그인 게이트)
 - [x] `collectors/careerly.py` — 사이트맵 기반 수집 완료
-- [ ] `collectors/wanted.py` — 보류 (API vs 크롤링 미결정, 나중에 추가)
+- [x] `collectors/wanted.py` — 크롤링으로 완료. 내부 검색 API(`/api/chaos/search/v1/position`)로 후보 탐색, 연차는 API 응답의 annual_from/to로 정확히 파싱됨
 - [ ] 통합채용 감지 및 태그 필터링 로직
 
 ## 3. 적재 — 완료
@@ -32,9 +32,9 @@ Last Updated: 2026-09-10
 - 알려진 한계: 경계값(예: "신입~3년")에서 과포함 경향 있음. 최종 확인은 노션에서 사람이 함
 
 ## 5. 판별 로직
-- [ ] `classify.py` 연차/인턴/계약직 정규식 파싱
-- [ ] Claude API 연동 (직무 판별 프롬프트)
-- [ ] 판별 결과 표본 검토 (오분류 확인)
+- [x] `classify.py` 코드 작성 (연차 파싱은 career_parser.py 재사용, Claude Haiku 프롬프트 완성)
+- [ ] **보류**: ANTHROPIC_API_KEY 발급 방식 고민 중 (일반 API 키 vs 구독 기반 스케줄 클라우드 에이전트). 클라우드 에이전트는 상태 유지(SQLite 커밋 필요)·노션 커넥터 재연결이 번거롭고 비용 방식도 불명확해서, 사용자가 더 생각해보기로 함. Haiku API 자체는 월 1~2천원 수준으로 저렴함
+- [ ] 실제 API 키로 판별 결과 표본 검토 (오분류 확인) — 키 준비되면 진행
 
 ## 6. 노션 업로드 + 스케줄
 - [ ] `notion_sync.py` 신규 항목 업로드
