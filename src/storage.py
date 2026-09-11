@@ -31,6 +31,17 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
+def is_known_url(conn: sqlite3.Connection, url: str) -> bool:
+    """URL 하나가 이미 저장돼 있는지만 가볍게 확인한다.
+
+    커리어리처럼 후보 URL이 수만 건인 사이트에서, 이미 아는 공고까지
+    전부 상세 페이지를 열어보면 시간이 너무 오래 걸리고 사이트에도
+    부담을 준다. 그래서 상세 조회 전에 이 함수로 먼저 걸러낸다.
+    """
+    cur = conn.execute("SELECT 1 FROM postings WHERE url = ?", (url,))
+    return cur.fetchone() is not None
+
+
 def save_posting(conn: sqlite3.Connection, posting: Posting) -> bool:
     """새 공고면 저장하고 True, 이미 본 공고면 False.
 
