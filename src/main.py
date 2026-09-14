@@ -58,9 +58,18 @@ def main():
     print(f"노션에 이미 있는 링크 {len(known_urls)}건 조회함")
 
     new_postings = []
-    new_postings += collect_saramin(known_urls)
-    new_postings += collect_wanted(known_urls)
-    new_postings += collect_careerly(known_urls)
+    for site_name, collect_fn in (
+        ("사람인", collect_saramin),
+        ("원티드", collect_wanted),
+        ("커리어리", collect_careerly),
+    ):
+        try:
+            new_postings += collect_fn(known_urls)
+        except Exception as e:
+            # 사이트 하나가 막히거나(예: IP 차단) 일시적으로 실패해도
+            # 나머지 사이트에서 이미 모은 공고는 그대로 판별대기 DB에
+            # 올려야 한다. 한 사이트 오류로 전체 배치를 날리지 않는다.
+            print(f"  [{site_name} 수집 실패] {type(e).__name__}: {e}")
     print(f"신규 후보 {len(new_postings)}건 수집됨")
 
     staged = 0
