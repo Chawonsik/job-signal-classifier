@@ -1,3 +1,4 @@
+import re
 import sys
 from pathlib import Path
 
@@ -78,7 +79,10 @@ def main():
         if not result.ok:
             print(f"  [점검 실패] {posting.url} - {', '.join(result.reasons)}")
             continue
-        is_intern = "인턴" in posting.tags
+        # "인턴" 태그 여부만 보면 거의 안 잡힌다 (사람인은 해시태그에 인턴이
+        # 잘 안 붙고, 커리어리는 tags 필드가 기술스택 용도로 쓰인다). 직무명에
+        # "인턴"이 들어있는지를 기준으로 삼는 게 사이트 상관없이 더 정확하다.
+        is_intern = bool(re.search(r"인턴", posting.title)) or "인턴" in posting.tags
         add_to_staging(
             site=posting.site,
             company=posting.company,
