@@ -43,12 +43,9 @@ def search_position_ids(keyword: str, limit: int = 20) -> list[dict]:
         "limit": limit,
         "offset": 0,
     }
-    headers = {
-        "User-Agent": USER_AGENT,
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
-        "Referer": f"{BASE}/search?query={quote(keyword)}&tab=position",
-    }
+    # 실험: 커스텀 헤더 없이 requests 기본 헤더로만 호출 (GitHub Actions에서
+    # IP 기반 차단인지 헤더 기반 차단인지 구분하기 위한 임시 테스트).
+    headers = {}
     resp = requests.get(SEARCH_API, params=params, headers=headers, timeout=15)
     resp.raise_for_status()
     return resp.json().get("data", [])
