@@ -54,6 +54,31 @@ def collect_wanted(known_urls: set[str]):
     return postings
 
 
+def stage_postings(postings: list) -> int:
+    """점검을 통과한 공고를 판별대기 DB에 적재하고, 적재된 건수를 반환한다."""
+    staged = 0
+    for posting in postings:
+        result = check_posting(posting)
+        if not result.ok:
+            print(f"  [점검 실패] {posting.url} - {', '.join(result.reasons)}")
+            continue
+        # "인턴" 태그 여부만 보면 거의 안 잡힌다 (사람인은 해시태그에 인턴이
+        # 잘 안 붙고, 커리어리는 tags 필드가 기술스택 용도로 쓰인다). 직무명에
+        # "인턴"이 들어있는지를 기준으로 삼는 게 사이트 상관없이 더 정확하다.
+        is_intern = bool(re.search(r"인턴", posting.title)) or "인턴" in posting.tags
+        add_to_staging(
+            site=posting.site,
+            company=posting.company,
+            title=posting.title,
+            url=posting.url,
+            career_tags=result.career_tags,
+            is_intern=is_intern,
+            requirement_text=posting.requirement_text,
+        )
+        staged += 1
+    return staged
+
+
 def main():
     known_urls = get_existing_urls()
     print(f"노션에 이미 있는 링크 {len(known_urls)}건 조회함")
@@ -73,27 +98,7 @@ def main():
             print(f"  [{site_name} 수집 실패] {type(e).__name__}: {e}")
     print(f"신규 후보 {len(new_postings)}건 수집됨")
 
-    staged = 0
-    for posting in new_postings:
-        result = check_posting(posting)
-        if not result.ok:
-            print(f"  [점검 실패] {posting.url} - {', '.join(result.reasons)}")
-            continue
-        # "인턴" 태그 여부만 보면 거의 안 잡힌다 (사람인은 해시태그에 인턴이
-        # 잘 안 붙고, 커리어리는 tags 필드가 기술스택 용도로 쓰인다). 직무명에
-        # "인턴"이 들어있는지를 기준으로 삼는 게 사이트 상관없이 더 정확하다.
-        is_intern = bool(re.search(r"인턴", posting.title)) or "인턴" in posting.tags
-        add_to_staging(
-            site=posting.site,
-            company=posting.company,
-            title=posting.title,
-            url=posting.url,
-            career_tags=result.career_tags,
-            is_intern=is_intern,
-            requirement_text=posting.requirement_text,
-        )
-        staged += 1
-
+    staged = stage_postings(new_postings)
     print(f"판별대기 DB에 {staged}건 추가함")
 
 
