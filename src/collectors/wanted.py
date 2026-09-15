@@ -1,6 +1,7 @@
 import re
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 import requests
 from bs4 import BeautifulSoup
@@ -42,7 +43,13 @@ def search_position_ids(keyword: str, limit: int = 20) -> list[dict]:
         "limit": limit,
         "offset": 0,
     }
-    resp = requests.get(SEARCH_API, params=params, headers={"User-Agent": USER_AGENT}, timeout=15)
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+        "Referer": f"{BASE}/search?query={quote(keyword)}&tab=position",
+    }
+    resp = requests.get(SEARCH_API, params=params, headers=headers, timeout=15)
     resp.raise_for_status()
     return resp.json().get("data", [])
 
