@@ -43,9 +43,15 @@ def search_position_ids(keyword: str, limit: int = 20) -> list[dict]:
         "limit": limit,
         "offset": 0,
     }
-    # 실험: 커스텀 헤더 없이 requests 기본 헤더로만 호출 (GitHub Actions에서
-    # IP 기반 차단인지 헤더 기반 차단인지 구분하기 위한 임시 테스트).
-    headers = {}
+    # 헤더 유무와 무관하게 GitHub Actions 러너 IP 자체가 차단당하는 것으로
+    # 확인됐다(헤더 없이도, 브라우저 헤더를 붙여도 동일하게 403). 그래도
+    # 로컬/다른 네트워크에서 정상 사이트처럼 보이도록 기본 헤더는 유지한다.
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+        "Referer": f"{BASE}/search?query={quote(keyword)}&tab=position",
+    }
     resp = requests.get(SEARCH_API, params=params, headers=headers, timeout=15)
     resp.raise_for_status()
     return resp.json().get("data", [])
