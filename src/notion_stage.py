@@ -88,6 +88,39 @@ def add_to_staging(
     resp.raise_for_status()
 
 
+def add_to_tracker(
+    site: str,
+    company: str,
+    title: str,
+    url: str,
+    career_tags: list[str],
+    is_intern: bool,
+    company_size: str | None = None,
+) -> None:
+    """판별대기 DB를 거치지 않고 트래커 DB에 바로 적재한다.
+
+    그룹바이처럼 로그인 없이는 공고 원문을 못 가져오는 사이트는 AI가
+    내용을 읽고 판단할 수가 없다. 대신 사이트가 이미 구조화해서 주는
+    직무 태그로 포함/제외를 코드에서 직접 정하고, 통과한 것만 판별대기
+    없이 곧장 트래커로 보낸다. 그룹, 마감일, 마감됨, 계약직은 다른
+    수집기와 마찬가지로 사람의 최종 검토 몫으로 비워둔다.
+    """
+    properties = {
+        "공고": {"title": [{"text": {"content": f"{company} · {title}"[:200]}}]},
+        "회사": {"rich_text": [{"text": {"content": company[:200]}}]},
+        "직무": {"rich_text": [{"text": {"content": title[:200]}}]},
+        "사이트": {"select": {"name": site}},
+        "연차": {"multi_select": [{"name": t} for t in career_tags]},
+        "인턴": {"checkbox": is_intern},
+        "링크": {"url": url},
+    }
+    if company_size:
+        properties["기업규모"] = {"select": {"name": company_size}}
+    payload = {"parent": {"database_id": TRACKER_DATABASE_ID}, "properties": properties}
+    resp = requests.post(NOTION_API, headers=_headers(), json=payload, timeout=15)
+    resp.raise_for_status()
+
+
 if __name__ == "__main__":
     add_to_staging(
         site="사람인",

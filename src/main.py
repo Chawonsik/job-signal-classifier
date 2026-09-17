@@ -4,42 +4,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from checks import check_posting  # noqa: E402
-from collectors import careerly, saramin, wanted  # noqa: E402
-from notion_stage import add_to_staging, get_existing_urls  # noqa: E402
-
-
-def collect_saramin(known_urls: set[str]):
-    postings = []
-    for keyword in saramin.SEARCH_KEYWORDS:
-        for url in saramin.search_posting_urls(keyword):
-            if url in known_urls:
-                continue
-            postings.append(saramin.fetch_posting(url))
-            known_urls.add(url)
-    return postings
-
-
-CAREERLY_MAX_FETCH_PER_RUN = 150
-
-
-def collect_careerly(known_urls: set[str]):
-    """사이트맵 URL을 job ID 내림차순(최신 추정)으로 정렬해서, 모르는
-    URL 중 앞에서부터 최대 CAREERLY_MAX_FETCH_PER_RUN개만 상세 조회한다.
-
-    사이트맵에 3만 건 가까이 있는데 첫 실행에서 그걸 다 열어보면 몇
-    시간이 걸리고 사이트에도 부담을 준다. 매일 조금씩 처리하면 며칠
-    안에 다 따라잡고, 그 이후로는 정말 새로 생긴 것만 몇 건 처리하면
-    되니까 이 정도 캡으로 충분하다.
-    """
-    all_urls = careerly.list_all_job_urls()
-    unknown = [u for u in all_urls if u not in known_urls]
-    unknown.sort(key=lambda u: int(u.rstrip("/").rsplit("/", 1)[-1]), reverse=True)
-
-    postings = []
-    for url in unknown[:CAREERLY_MAX_FETCH_PER_RUN]:
-        postings.append(careerly.fetch_posting(url))
-        known_urls.add(url)
-    return postings
+from collectors import groupby, wanted  # noqa: E402
+from notion_stage import add_to_staging, add_to_tracker, get_existing_urls  # noqa: E402
 
 
 def collect_wanted(known_urls: set[str]):
@@ -55,7 +21,11 @@ def collect_wanted(known_urls: set[str]):
 
 
 def stage_postings(postings: list) -> int:
-    """점검을 통과한 공고를 판별대기 DB에 적재하고, 적재된 건수를 반환한다."""
+    """점검을 통과한 공고를 판별대기 DB에 적재하고, 적재된 건수를 반환한다.
+
+    판별대기를 거치는 사이트는 AI 판별 루틴이 원문을 직접 읽고 포함/제외를
+    정한다.
+    """
     staged = 0
     for posting in postings:
         result = check_posting(posting)
@@ -79,27 +49,68 @@ def stage_postings(postings: list) -> int:
     return staged
 
 
+def collect_groupby(known_urls: set[str]):
+    postings = []
+    for slug in groupby.CATEGORY_SLUGS:
+        for position in groupby.list_category_positions(slug):
+            if not groupby.is_target_tags(position):
+                continue
+            url = f"{groupby.BASE}/positions/{position['id']}"
+            if url in known_urls:
+                continue
+            postings.append(groupby.to_posting(position))
+            known_urls.add(url)
+    return postings
+
+
+def track_groupby(postings: list) -> int:
+    """그룹바이는 로그인 없이 원문을 못 읽어서 AI 판별을 거칠 수 없다.
+
+    직무 태그로 이미 포함/제외가 끝난 상태로 들어오니, 판별대기를 건너뛰고
+    트래커에 바로 적재한다. 그룹바이는 스타트업 전문 채용 플랫폼이라
+    기업규모를 추측할 필요 없이 '스타트업'으로 확정할 수 있다.
+    """
+    tracked = 0
+    for posting in postings:
+        result = check_posting(posting)
+        if not result.ok:
+            print(f"  [점검 실패] {posting.url} - {', '.join(result.reasons)}")
+            continue
+        is_intern = bool(re.search(r"인턴", posting.title))
+        add_to_tracker(
+            site=posting.site,
+            company=posting.company,
+            title=posting.title,
+            url=posting.url,
+            career_tags=result.career_tags,
+            is_intern=is_intern,
+            company_size="스타트업",
+        )
+        tracked += 1
+    return tracked
+
+
 def main():
     known_urls = get_existing_urls()
     print(f"노션에 이미 있는 링크 {len(known_urls)}건 조회함")
 
-    new_postings = []
-    for site_name, collect_fn in (
-        ("사람인", collect_saramin),
-        ("원티드", collect_wanted),
-        ("커리어리", collect_careerly),
-    ):
-        try:
-            new_postings += collect_fn(known_urls)
-        except Exception as e:
-            # 사이트 하나가 막히거나(예: IP 차단) 일시적으로 실패해도
-            # 나머지 사이트에서 이미 모은 공고는 그대로 판별대기 DB에
-            # 올려야 한다. 한 사이트 오류로 전체 배치를 날리지 않는다.
-            print(f"  [{site_name} 수집 실패] {type(e).__name__}: {e}")
-    print(f"신규 후보 {len(new_postings)}건 수집됨")
-
-    staged = stage_postings(new_postings)
+    wanted_postings = []
+    try:
+        wanted_postings = collect_wanted(known_urls)
+    except Exception as e:
+        print(f"  [원티드 수집 실패] {type(e).__name__}: {e}")
+    print(f"원티드 신규 후보 {len(wanted_postings)}건 수집됨")
+    staged = stage_postings(wanted_postings)
     print(f"판별대기 DB에 {staged}건 추가함")
+
+    groupby_postings = []
+    try:
+        groupby_postings = collect_groupby(known_urls)
+    except Exception as e:
+        print(f"  [그룹바이 수집 실패] {type(e).__name__}: {e}")
+    print(f"그룹바이 태그 통과 {len(groupby_postings)}건 수집됨")
+    tracked = track_groupby(groupby_postings)
+    print(f"트래커 DB에 {tracked}건 바로 추가함")
 
 
 if __name__ == "__main__":
